@@ -43,14 +43,14 @@ class KalmanFilter(object):
         # Create Kalman filter model matrices.
         self._motion_mat = np.eye(2 * ndim, 2 * ndim)
         for i in range(ndim):
-            self._motion_mat[i, ndim + i] = dt
-        self._update_mat = np.eye(ndim, 2 * ndim)
+            self._motion_mat[i, ndim + i] = dt   # A
+        self._update_mat = np.eye(ndim, 2 * ndim)   # 预测空间维度是8，观测空间维度是4
 
         # Motion and observation uncertainty are chosen relative to the current
         # state estimate. These weights control the amount of uncertainty in
         # the model. This is a bit hacky.
         self._std_weight_position = 1. / 20
-        self._std_weight_velocity = 1. / 160
+        self._std_weight_velocity = 1. / 160   # 初始状态协方差P0、预测噪声协方差Q、观测噪声协方差R，都是由这两个参数构造
 
     def initiate(self, measurement):
         """Create track from unassociated measurement.
@@ -81,8 +81,8 @@ class KalmanFilter(object):
             10 * self._std_weight_velocity * measurement[0],
             10 * self._std_weight_velocity * measurement[1],
             0.1 * measurement[2],
-            10 * self._std_weight_velocity * measurement[3]]
-        covariance = np.diag(np.square(std))
+            10 * self._std_weight_velocity * measurement[3]]  
+        covariance = np.diag(np.square(std))   # P0 对角矩阵，协方差退化为各自维度的方差
         return mean, covariance
 
     def predict(self, mean, covariance):
@@ -115,7 +115,7 @@ class KalmanFilter(object):
             0.1 * mean[2],
             self._std_weight_velocity * mean[3]]
 
-        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
+        motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))   # Q 预测噪声的协方差
         mean = np.dot(self._motion_mat, mean)
         covariance = np.linalg.multi_dot((
             self._motion_mat, covariance, self._motion_mat.T)) + motion_cov
@@ -143,12 +143,12 @@ class KalmanFilter(object):
             self._std_weight_position * mean[1],
             0.1 * mean[2],
             self._std_weight_position * mean[3]]
-        innovation_cov = np.diag(np.square(std))
-        mean = np.dot(self._update_mat, mean)
+        innovation_cov = np.diag(np.square(std))   # R 观测噪声的协方差 [4,4]
+        mean = np.dot(self._update_mat, mean)   # K(z-Hx)中的Hx, [4,8]*[8,1]=[4,1]
         covariance = np.linalg.multi_dot((
-            self._update_mat, covariance, self._update_mat.T))
+            self._update_mat, covariance, self._update_mat.T))   # HPH+R, [4,8]*[8,8]*[8,4]=[4,4]
         return mean, covariance + innovation_cov
-
+ 
     def update(self, mean, covariance, measurement):
         """Run Kalman filter correction step.
 
@@ -169,14 +169,14 @@ class KalmanFilter(object):
             Returns the measurement-corrected state distribution.
 
         """
-        projected_mean, projected_cov = self.project(mean, covariance)
+        projected_mean, projected_cov = self.project(mean, covariance)   # 输入[8,1],[8,8], 输出[4,1],[4,4]
 
         chol_factor, lower = scipy.linalg.cho_factor(
             projected_cov, lower=True, check_finite=False)
         kalman_gain = scipy.linalg.cho_solve(
             (chol_factor, lower), np.dot(covariance, self._update_mat.T).T,
             check_finite=False).T
-        innovation = measurement - projected_mean
+        innovation = measurement - projected_mean   # z-Hx
 
         new_mean = mean + np.dot(innovation, kalman_gain.T)
         new_covariance = covariance - np.linalg.multi_dot((
